@@ -113,16 +113,30 @@ function callGas(payload, timeoutMs = 15000) {
       type: 'reception-request',
       requestId,
       payload
-    }, GAS_ORIGIN);
+    }, '*');
   });
 }
 
+
+
+
+
 function onBridgeMessage(event) {
-  if (event.origin !== GAS_ORIGIN) return;
+
+  // GAS Bridgeとして埋め込んだiframeからの通信だけを受け付ける
+  if (event.source !== els.bridge.contentWindow) return;
+
   const msg = event.data || {};
-  if (msg.type !== 'reception-response' || !msg.requestId) return;
+
+  if (
+    msg.type !== 'reception-response' ||
+    !msg.requestId
+  ) {
+    return;
+  }
 
   const p = pending.get(msg.requestId);
+
   if (!p) return;
 
   clearTimeout(p.timer);
@@ -134,6 +148,20 @@ function onBridgeMessage(event) {
     p.resolve(msg.result);
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 async function startScanner() {
   if (scannerRunning || scannerLocked) return;
