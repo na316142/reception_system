@@ -2,12 +2,12 @@
  * 会場受付 Webアプリ
  *
  * 必ず設定:
- *   GAS_ORIGIN = GAS Webアプリのorigin（通常 https://script.google.com）
+ *   GAS_ORIGIN = GAS Webアプリのorigin（通常 https://script.google.com）→削除
  *
  * index.html の iframe src にはデプロイ済みGASの /exec URLを指定。
  */
 
-const GAS_ORIGIN = 'https://script.google.com';
+
 
 let scanner = null;
 let scannerRunning = false;
