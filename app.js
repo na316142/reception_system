@@ -10,11 +10,29 @@ async function pingGas(){setConnection(null,'GAS接続確認中');els.diagSend.t
 function setConnection(ok,text){els.connectionStatus.textContent=text||(ok?'GAS接続OK':'GAS未接続');els.connectionStatus.className='status '+(ok===true?'status-ok':ok===false?'status-error':'status-warn');}
 function setDiagError(message){els.diagError.textContent=message||'なし';els.diagError.className=message&&message!=='なし'?'error':'';}
 function saveDeviceName(){const v=(els.deviceNameInput.value||'').trim();if(!v){alert('端末名を入力してください。');return;}deviceName=v;localStorage.setItem('receptionDeviceName',v);els.deviceBadge.textContent=v;els.deviceModal.classList.remove('show');}
+
+/**
+ * 前回の受付結果を消去
+ */
+function clearLastResult() {
+  els.lastResult.innerHTML = '';
+  els.lastResult.className = 'card last-result hidden';
+}
+
+/**
+ * 検索文字と検索候補一覧を消去
+ */
+function clearSearchResult() {
+  els.searchInput.value = '';
+  els.searchResults.innerHTML = '';
+}
+
+
 async function startScanner(){if(scannerRunning||scannerLocked)return;if(!deviceName){els.deviceModal.classList.add('show');return;}try{scanner=scanner||new Html5Qrcode('reader');const config={fps:12,qrbox:(w,h)=>{const s=Math.floor(Math.min(w,h)*.72);return{width:s,height:s};},aspectRatio:1.333333};await scanner.start({facingMode:'environment'},config,onScanSuccess,()=>{});scannerRunning=true;els.scannerMessage.textContent='QRコードをカメラにかざしてください';}catch(e){console.error(e);els.scannerMessage.textContent='カメラを開始できません。ブラウザのカメラ許可を確認してください。';}}
 async function stopScanner(){if(!scanner||!scannerRunning)return;try{await scanner.stop();}catch(e){console.warn(e);}scannerRunning=false;}
 async function pauseScannerForProcessing(){scannerLocked=true;if(scanner&&scannerRunning){try{scanner.pause(true);}catch(e){console.warn(e);}}}
 function resumeScanner(){scannerLocked=false;if(scanner&&scannerRunning){try{scanner.resume();}catch(e){console.warn(e);}}els.scannerMessage.textContent='QRコードをカメラにかざしてください';}
-async function onScanSuccess(decodedText){if(scannerLocked)return;const id=String(decodedText||'').trim();if(!id)return;const now=Date.now();if(id===lastDecodedText&&now-lastDecodedAt<2500)return;lastDecodedText=id;lastDecodedAt=now;await pauseScannerForProcessing();els.scannerMessage.textContent='受付処理中…';try{const result=await jsonpRequest({action:'checkIn',id,device:deviceName,method:'qr'});await handleCheckInResult(result);}catch(e){showResult('error','通信エラー','',e.message||'受付処理に失敗しました。');setConnection(false,'GAS通信エラー');setDiagError(e.message);setTimeout(resumeScanner,1500);}}
+async function onScanSuccess(decodedText){if(scannerLocked)return;const id=String(decodedText||'').trim();if(!id)return;const now=Date.now();if(id===lastDecodedText&&now-lastDecodedAt<2500)return;lastDecodedText=id;lastDecodedAt=now;clearLastResult();await pauseScannerForProcessing();els.scannerMessage.textContent='受付処理中…';try{const result=await jsonpRequest({action:'checkIn',id,device:deviceName,method:'qr'});await handleCheckInResult(result);}catch(e){showResult('error','通信エラー','',e.message||'受付処理に失敗しました。');setConnection(false,'GAS通信エラー');setDiagError(e.message);setTimeout(resumeScanner,1500);}}
 async function handleCheckInResult(result){if(!result||!result.ok){const msg=result&&result.message?result.message:'受付できませんでした。';showResult('error','受付できません','',msg);els.scannerMessage.textContent=msg;setTimeout(resumeScanner,1400);return;}setConnection(true,'GAS接続OK');if(result.status==='duplicate'){showResult('duplicate','⚠ 受付済みです',result.name,(result.org||'')+'\n初回受付：'+(result.firstTime||'-'));if(result.note){showNote(result);return;}setTimeout(resumeScanner,1800);return;}showResult('success','✓ 受付しました',result.name,(result.org||'')+'\n受付：'+(result.firstTime||''));if(result.note){showNote(result);return;}els.scannerMessage.textContent='受付完了：'+result.name;setTimeout(resumeScanner,900);}
 function showNote(result){els.noteName.textContent=result.name||'';els.noteOrg.textContent=result.org||'';els.noteBody.textContent=result.note||'';els.noteModal.classList.add('show');if('vibrate'in navigator){try{navigator.vibrate([250,160,250]);}catch(e){}}beepTwice();}
 function closeNoteAndResume(){els.noteModal.classList.remove('show');resumeScanner();}
@@ -22,5 +40,5 @@ function beepTwice(){try{const AudioCtx=window.AudioContext||window.webkitAudioC
 function showResult(kind,title,name,detail){els.lastResult.className='card last-result result-'+kind;els.lastResult.innerHTML='<div class="result-title">'+escapeHtml(title)+'</div>'+(name?'<div class="result-name">'+escapeHtml(name)+'</div>':'')+(detail?'<div class="result-meta">'+escapeHtml(detail).replace(/\n/g,'<br>')+'</div>':'');els.lastResult.scrollIntoView({behavior:'smooth',block:'nearest'});}
 async function doSearch(){const keyword=(els.searchInput.value||'').trim();if(keyword.length<2){els.searchResults.innerHTML='<div class="result-meta">2文字以上入力してください。</div>';return;}els.searchBtn.disabled=true;els.searchResults.innerHTML='<div class="result-meta">検索中…</div>';try{const result=await jsonpRequest({action:'search',keyword});if(!result||!result.ok)throw new Error(result&&result.message?result.message:'検索に失敗しました。');renderSearchResults(result.results||[]);}catch(e){els.searchResults.innerHTML='<div class="result-meta">'+escapeHtml(e.message)+'</div>';setDiagError(e.message);}finally{els.searchBtn.disabled=false;}}
 function renderSearchResults(results){if(!results.length){els.searchResults.innerHTML='<div class="result-meta">該当者はいません。</div>';return;}els.searchResults.innerHTML='';results.forEach(person=>{const b=document.createElement('button');b.type='button';b.className='search-item';b.innerHTML='<div class="search-item-name">'+escapeHtml(person.name)+'</div><div class="search-item-meta">'+escapeHtml(person.kana||'')+'<br>'+escapeHtml(person.org||'')+'<br>ID: '+escapeHtml(person.id)+'</div>'+(person.attended?'<span class="search-item-attended">受付済み '+escapeHtml(person.firstTime||'')+'</span>':'');b.addEventListener('click',()=>manualCheckIn(person));els.searchResults.appendChild(b);});}
-async function manualCheckIn(person){const message=person.attended?person.name+'さんは受付済みです。受付情報を確認しますか？':person.name+'さんを受付しますか？';if(!confirm(message))return;scannerLocked=true;if(scanner&&scannerRunning){try{scanner.pause(true);}catch(e){}}try{const result=await jsonpRequest({action:'checkIn',id:person.id,device:deviceName,method:'search'});await handleCheckInResult(result);}catch(e){showResult('error','通信エラー',person.name,e.message);setDiagError(e.message);setTimeout(resumeScanner,1500);}}
+async function manualCheckIn(person){const message=person.attended?person.name+'さんは受付済みです。受付情報を確認しますか？':person.name+'さんを受付しますか？';if(!confirm(message))return;clearLastResult();clearSearchResult();scannerLocked=true;if(scanner&&scannerRunning){try{scanner.pause(true);}catch(e){}}try{const result=await jsonpRequest({action:'checkIn',id:person.id,device:deviceName,method:'search'});await handleCheckInResult(result);}catch(e){showResult('error','通信エラー',person.name,e.message);setDiagError(e.message);setTimeout(resumeScanner,1500);}}
 function escapeHtml(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
