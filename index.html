@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f4c81">
+<title>会場受付</title>
+<link rel="stylesheet" href="./style.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+<header class="app-header">
+  <div><div class="small">EVENT RECEPTION</div><h1>会場受付</h1></div>
+  <div id="deviceBadge" class="device-badge">端末未設定</div>
+</header>
+
+<main>
+<section class="card">
+  <div class="section-title-row">
+    <h2>QR受付</h2>
+    <span id="connectionStatus" class="status status-warn">GAS接続確認中</span>
+  </div>
+  <div id="reader"></div>
+  <div id="scannerMessage" class="scanner-message">カメラ開始ボタンを押してください</div>
+  <div class="button-row">
+    <button id="cameraStartBtn" class="btn btn-primary">カメラ開始</button>
+    <button id="cameraStopBtn" class="btn btn-secondary">停止</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>QRをお持ちでない方</h2>
+  <div class="search-wrap">
+    <input id="searchInput" type="search" inputmode="search" autocomplete="off"
+      placeholder="氏名・フリガナ・所属・ID（2文字以上）">
+    <button id="searchBtn" class="btn btn-primary">検索</button>
+  </div>
+  <div id="searchResults" class="search-results"></div>
+</section>
+
+<section id="lastResult" class="card last-result hidden"></section>
+
+<section class="card diagnostic-card">
+  <div class="section-title-row">
+    <h2>通信診断</h2>
+    <button id="pingBtn" class="btn btn-small">再確認</button>
+  </div>
+  <div id="diagnostic">
+    <div>ページ: <strong class="ok">OK</strong></div>
+    <div>GAS POST: <strong id="diagPost">未確認</strong></div>
+    <div>GAS応答: <strong id="diagResponse">未確認</strong></div>
+  </div>
+</section>
+</main>
+
+<div id="deviceModal" class="modal show">
+  <div class="modal-panel">
+    <h2>受付端末を設定</h2>
+    <p>このスマホを識別する名称を入力してください。</p>
+    <input id="deviceNameInput" maxlength="30" placeholder="例：受付1">
+    <button id="saveDeviceBtn" class="btn btn-primary btn-full">この端末名で開始</button>
+  </div>
+</div>
+
+<div id="noteModal" class="modal note-modal">
+  <div class="modal-panel note-panel">
+    <div class="note-alert">⚠ 連絡事項あり</div>
+    <h2 id="noteName"></h2>
+    <div id="noteOrg" class="note-org"></div>
+    <div id="noteBody" class="note-body"></div>
+    <button id="noteConfirmBtn" class="btn btn-confirm btn-full">確認しました</button>
+  </div>
+</div>
+
+<iframe id="gasResultFrame" name="gasResultFrame" class="hidden-frame" title="GAS result"></iframe>
+
+<script src="./app.js"></script>
+</body>
+</html>
