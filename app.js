@@ -1,13 +1,14 @@
 /*
- * 会場受付 Webアプリ
+ * 会場受付 Webアプリ（GAS Bridge 通信修正版）
  *
- * 必ず設定:
- *   GAS_ORIGIN = GAS Webアプリのorigin（通常 https://script.google.com）→削除
+ * 修正点:
+ * - Apps Script Webアプリが script.googleusercontent.com へリダイレクトされても通信できるよう、
+ *   postMessage の送信先 targetOrigin を "*" に変更
+ * - 応答受信時は event.origin ではなく、
+ *   「GAS Bridge iframe 自身から来たメッセージか」を event.source で検証
  *
- * index.html の iframe src にはデプロイ済みGASの /exec URLを指定。
+ * index.html の iframe src には、デプロイ済みGASの /exec URLを指定してください。
  */
-
-
 
 let scanner = null;
 let scannerRunning = false;
@@ -61,7 +62,6 @@ function init() {
 
   window.addEventListener('message', onBridgeMessage);
 
-  // iframe読込後に疎通確認
   els.bridge.addEventListener('load', async () => {
     try {
       const r = await callGas({ action: 'ping' }, 12000);
@@ -102,6 +102,7 @@ function callGas(payload, timeoutMs = 15000) {
     }
 
     const requestId = 'r' + Date.now() + '_' + (++requestSeq);
+
     const timer = setTimeout(() => {
       pending.delete(requestId);
       reject(new Error('GAS通信がタイムアウトしました。'));
@@ -109,6 +110,8 @@ function callGas(payload, timeoutMs = 15000) {
 
     pending.set(requestId, { resolve, reject, timer });
 
+    // Apps Script は googleusercontent.com 側へリダイレクトされる場合があるため
+    // targetOrigin は "*" とする。受信側では event.source で送信元iframeを検証する。
     els.bridge.contentWindow.postMessage({
       type: 'reception-request',
       requestId,
@@ -117,13 +120,8 @@ function callGas(payload, timeoutMs = 15000) {
   });
 }
 
-
-
-
-
 function onBridgeMessage(event) {
-
-  // GAS Bridgeとして埋め込んだiframeからの通信だけを受け付ける
+  // GAS Bridge iframe からのメッセージだけを許可
   if (event.source !== els.bridge.contentWindow) return;
 
   const msg = event.data || {};
@@ -136,7 +134,6 @@ function onBridgeMessage(event) {
   }
 
   const p = pending.get(msg.requestId);
-
   if (!p) return;
 
   clearTimeout(p.timer);
@@ -148,20 +145,6 @@ function onBridgeMessage(event) {
     p.resolve(msg.result);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 async function startScanner() {
   if (scannerRunning || scannerLocked) return;
@@ -202,17 +185,19 @@ async function startScanner() {
 
 async function stopScanner() {
   if (!scanner || !scannerRunning) return;
+
   try {
     await scanner.stop();
   } catch (e) {
     console.warn(e);
   }
+
   scannerRunning = false;
 }
 
 async function pauseScannerForProcessing() {
   scannerLocked = true;
-  // カメラ映像は維持し、解析だけ停止する
+
   if (scanner && scannerRunning) {
     try {
       scanner.pause(true);
@@ -224,6 +209,7 @@ async function pauseScannerForProcessing() {
 
 function resumeScanner() {
   scannerLocked = false;
+
   if (scanner && scannerRunning) {
     try {
       scanner.resume();
@@ -231,6 +217,7 @@ function resumeScanner() {
       console.warn(e);
     }
   }
+
   els.scannerMessage.textContent = 'QRコードをカメラにかざしてください';
 }
 
@@ -240,9 +227,9 @@ async function onScanSuccess(decodedText) {
   const id = String(decodedText || '').trim();
   if (!id) return;
 
-  // 同一QRをカメラにかざし続けた場合の連続発火を抑制
   const now = Date.now();
   if (id === lastDecodedText && now - lastDecodedAt < 2500) return;
+
   lastDecodedText = id;
   lastDecodedAt = now;
 
@@ -260,7 +247,12 @@ async function onScanSuccess(decodedText) {
     await handleCheckInResult(result);
   } catch (e) {
     console.error(e);
-    showResult('error', '通信エラー', '', e.message || '受付処理に失敗しました。');
+    showResult(
+      'error',
+      '通信エラー',
+      '',
+      e.message || '受付処理に失敗しました。'
+    );
     setConnection(false);
     setTimeout(resumeScanner, 1500);
   }
@@ -268,9 +260,13 @@ async function onScanSuccess(decodedText) {
 
 async function handleCheckInResult(result) {
   if (!result || !result.ok) {
-    const msg = result && result.message ? result.message : '受付できませんでした。';
+    const msg = result && result.message
+      ? result.message
+      : '受付できませんでした。';
+
     showResult('error', '受付できません', '', msg);
     els.scannerMessage.textContent = msg;
+
     setTimeout(resumeScanner, 1400);
     return;
   }
@@ -279,9 +275,14 @@ async function handleCheckInResult(result) {
 
   if (result.status === 'duplicate') {
     const sub = `${result.org || ''}\n初回受付：${result.firstTime || '-'}`;
-    showResult('duplicate', '⚠ 受付済みです', result.name, sub);
 
-    // 重複でも連絡事項があるなら表示
+    showResult(
+      'duplicate',
+      '⚠ 受付済みです',
+      result.name,
+      sub
+    );
+
     if (result.note) {
       showNote(result);
       return;
@@ -308,20 +309,17 @@ async function handleCheckInResult(result) {
 }
 
 function showNote(result) {
-  // 連絡事項確認中は scannerLocked=true のまま。
   els.noteName.textContent = result.name || '';
   els.noteOrg.textContent = result.org || '';
   els.noteBody.textContent = result.note || '';
   els.noteModal.classList.add('show');
 
-  // 2回振動。非対応端末では何も起きない。
   if ('vibrate' in navigator) {
     try {
       navigator.vibrate([250, 160, 250]);
     } catch (e) {}
   }
 
-  // 短い警告音（Web Audio）。端末設定等で鳴らないこともある。
   beepTwice();
 }
 
@@ -334,15 +332,19 @@ function beepTwice() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
+
     const ctx = new AudioCtx();
 
     [0, 0.32].forEach(offset => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
+
       osc.frequency.value = 880;
       gain.gain.value = 0.08;
+
       osc.connect(gain);
       gain.connect(ctx.destination);
+
       osc.start(ctx.currentTime + offset);
       osc.stop(ctx.currentTime + offset + 0.14);
     });
@@ -352,25 +354,32 @@ function beepTwice() {
 }
 
 function showResult(kind, title, name, detail) {
-  els.lastResult.className =
-    `card last-result result-${kind}`;
+  els.lastResult.className = `card last-result result-${kind}`;
+
   els.lastResult.innerHTML = `
     <div class="result-title">${escapeHtml(title)}</div>
     ${name ? `<div class="result-name">${escapeHtml(name)}</div>` : ''}
     ${detail ? `<div class="result-meta">${escapeHtml(detail).replace(/\n/g, '<br>')}</div>` : ''}
   `;
-  els.lastResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  els.lastResult.scrollIntoView({
+    behavior: 'smooth',
+    block: 'nearest'
+  });
 }
 
 async function doSearch() {
   const keyword = (els.searchInput.value || '').trim();
+
   if (keyword.length < 2) {
-    els.searchResults.innerHTML = '<div class="result-meta">2文字以上入力してください。</div>';
+    els.searchResults.innerHTML =
+      '<div class="result-meta">2文字以上入力してください。</div>';
     return;
   }
 
   els.searchBtn.disabled = true;
-  els.searchResults.innerHTML = '<div class="result-meta">検索中…</div>';
+  els.searchResults.innerHTML =
+    '<div class="result-meta">検索中…</div>';
 
   try {
     const r = await callGas({
@@ -378,7 +387,10 @@ async function doSearch() {
       keyword
     });
 
-    if (!r || !r.ok) throw new Error((r && r.message) || '検索に失敗しました。');
+    if (!r || !r.ok) {
+      throw new Error((r && r.message) || '検索に失敗しました。');
+    }
+
     renderSearchResults(r.results || []);
   } catch (e) {
     els.searchResults.innerHTML =
@@ -390,15 +402,18 @@ async function doSearch() {
 
 function renderSearchResults(results) {
   if (!results.length) {
-    els.searchResults.innerHTML = '<div class="result-meta">該当者はいません。</div>';
+    els.searchResults.innerHTML =
+      '<div class="result-meta">該当者はいません。</div>';
     return;
   }
 
   els.searchResults.innerHTML = '';
+
   results.forEach(person => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'search-item';
+
     b.innerHTML = `
       <div class="search-item-name">${escapeHtml(person.name)}</div>
       <div class="search-item-meta">
@@ -410,6 +425,7 @@ function renderSearchResults(results) {
         ? `<span class="search-item-attended">受付済み ${escapeHtml(person.firstTime || '')}</span>`
         : ''}
     `;
+
     b.addEventListener('click', () => manualCheckIn(person));
     els.searchResults.appendChild(b);
   });
@@ -423,8 +439,11 @@ async function manualCheckIn(person) {
   if (!confirm(label)) return;
 
   scannerLocked = true;
+
   if (scanner && scannerRunning) {
-    try { scanner.pause(true); } catch (e) {}
+    try {
+      scanner.pause(true);
+    } catch (e) {}
   }
 
   try {
@@ -434,6 +453,7 @@ async function manualCheckIn(person) {
       device: deviceName,
       method: 'search'
     });
+
     await handleCheckInResult(result);
   } catch (e) {
     showResult('error', '通信エラー', person.name, e.message);
